@@ -2,7 +2,7 @@
 FROM node:23.3.0-slim AS builder
 
 # Install pnpm globally and install necessary build tools
-RUN npm install -g pnpm@9.4.0 && \
+RUN npm install -g pnpm@9.15.2 && \
     apt-get update && \
     apt-get install -y git python3 make g++ && \
     apt-get clean && \
@@ -24,7 +24,7 @@ COPY scripts ./scripts
 COPY characters ./characters
 
 # Install dependencies and build the project
-RUN pnpm install \
+RUN pnpm install --no-frozen-lockfile \
     && pnpm build-docker \
     && pnpm prune --prod
 
@@ -52,4 +52,4 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/characters ./characters
 
 # Set the command to run the application
-CMD ["pnpm", "start"]
+CMD ["pnpm", "start", "--characters=./characters/doodroid.character.json"]

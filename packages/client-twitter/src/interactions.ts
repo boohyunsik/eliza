@@ -13,10 +13,11 @@ import {
     State,
     stringToUuid,
     elizaLogger,
-    getEmbeddingZeroVector,
+    getEmbeddingZeroVector, generateObject, settings, Media,
 } from "@elizaos/core";
 import { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
+import {z} from "zod";
 
 export const twitterMessageHandlerTemplate =
     `
@@ -86,6 +87,43 @@ Thread of Tweets You Are Replying To:
 
 # INSTRUCTIONS: Respond with [RESPOND] if {{agentName}} should respond, or [IGNORE] if {{agentName}} should not respond to the last message and [STOP] if {{agentName}} should stop participating in the conversation.
 ` + shouldRespondFooter;
+
+const doodleTemplate = `
+Given the recent messages, you must extract nft information from user's last message, this message is that user tag agent.:
+
+Current Post:
+{{currentPost}}
+
+Extract the following information about the user nft information from the last user message, You must ensure whether this user has provided their Doodle ID or not. If the user hasn't mentioned their Doodle ID, set the nftId to 0.:
+- If user says "@welcome_doodle Hi! I am doodle 1021 holder!", extract nft "doodle" and nftId 1021.
+- If user says "Hi! I am doodle 1021 holder! @welcome_doodle", extract nft "doodle" and nftId 1021.
+- If user says "@welcome_doodle Please give me doodle 3000 image", extract nft "doodle" and nftId 3000.
+- If user says "Please give me doodle 3000 image @welcome_doodle", extract nft "doodle" and nftId 3000.
+- If user says "@welcome_doodle I am doodler 2022", extract nft "doodle" and nftId 2022.
+- If user says "I am doodler 2022 @welcome_doodle", extract nft "doodle" and nftId 2022.
+- If user says "@welcome_doodle I am azuki 2022", extract nft "azuki" and nftId 2022.
+- If user says "@welcome_doodle I have pudge penguin 1000", extract nft "pudge penguin" and nftId 2022.
+
+Respond with a JSON markdown block containing only the extracted values.\`;
+
+\`\`\`json
+{
+    "nft": string,
+    "nftId": number
+}\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+
+interface DoodleObject {
+    nft: string;
+    nftId: number;
+}
+
+const DoodleSchema = z.object({
+    nft: z.string(),
+    nftId: z.number(),
+})
 
 export class TwitterInteractionClient {
     client: ClientBase;
@@ -303,6 +341,7 @@ export class TwitterInteractionClient {
         message: Memory;
         thread: Tweet[];
     }) {
+        elizaLogger.log('handleTweet');
         if (tweet.userId === this.client.profile.id) {
             // console.log("skipping tweet from bot itself", tweet.id);
             // Skip processing if the tweet is from the bot itself
@@ -429,6 +468,53 @@ export class TwitterInteractionClient {
 
         if (response.text) {
             try {
+                // get nft id if exist
+                const pfpContext = composeContext({
+                    state,
+                    template: doodleTemplate
+                });
+                console.log('pfpState', state);
+                console.log('doodleTemplate', doodleTemplate);
+
+                const params = (await generateObject({
+                    runtime: this.runtime,
+                    context: pfpContext,
+                    modelClass: ModelClass.SMALL,
+                    schema: DoodleSchema,
+                })).object as unknown as DoodleObject;
+                console.log('pfp params', params);
+
+                if ((params.nft == "doodle" || params.nft == "Doodle") && params.nftId != 0) {
+                    const imageReq = await fetch(`https://eth-mainnet.g.alchemy.com/nft/v3/${settings.ALCHEMY_API_KEY}/getNFTMetadata?contractAddress=0x8a90cab2b38dba80c64b7734e58ee1db38b8992e&tokenId=${params.nftId}&refreshCache=false`, {
+                        method: "GET",
+                        headers: {
+                            "Content-Type": "application/json",
+                        }
+                    })
+
+                    if (!imageReq.ok) {
+                        console.log('request failed');
+                        throw new Error(`request failed`)
+                    }
+
+                    const data = await imageReq.json();
+                    const imageUrl = data.image.originalUrl;
+
+                    response.attachments = [{
+                        id: crypto.randomUUID(),
+                        url: imageUrl,
+                        title: "doodle",
+                        source: "doodlePFP",
+                        description: "...", //caption.title,
+                        text: "...", //caption.description,
+                        contentType: "image/png",
+                    } as Media];
+                } else {
+                    console.log('no info about doodle nft id');
+                }
+
+                console.log('response.text', response.text);
+
                 const callback: HandlerCallback = async (response: Content) => {
                     const memories = await sendTweet(
                         this.client,

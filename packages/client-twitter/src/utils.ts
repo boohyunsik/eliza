@@ -171,6 +171,7 @@ export async function sendTweet(
     twitterUsername: string,
     inReplyTo: string
 ): Promise<Memory[]> {
+    console.log('sendTweet...');
     const maxTweetLength = client.twitterConfig.MAX_TWEET_LENGTH;
     const isLongTweet = maxTweetLength > 280;
 
@@ -181,7 +182,7 @@ export async function sendTweet(
     for (const chunk of tweetChunks) {
         let mediaData: { data: Buffer; mediaType: string }[] | undefined;
 
-        if (content.attachments && content.attachments.length > 0) {
+        if (content.attachments && content.attachments.length > 0 && mediaData.length === 0) {
             mediaData = await Promise.all(
                 content.attachments.map(async (attachment: Media) => {
                     if (/^(http|https):\/\//.test(attachment.url)) {
@@ -219,6 +220,7 @@ export async function sendTweet(
         );
 
         const body = await result.json();
+        console.log('body', body.data);
         const tweetResult = isLongTweet
             ? body.data.notetweet_create.tweet_results.result
             : body.data.create_tweet.tweet_results.result;
